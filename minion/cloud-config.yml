@@ -1,0 +1,18 @@
+#cloud-config
+
+coreos:
+
+  flannel:
+    interface: $private_ipv4
+    etcd_endpoints: http://172.17.4.100:2379
+
+  units:
+
+  - name: docker.service
+    command: start
+    drop-ins:
+      - name: 40-flannel.conf
+        content: |
+          [Unit]
+          Requires=flanneld.service
+          After=flanneld.service

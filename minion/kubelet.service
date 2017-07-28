@@ -1,0 +1,33 @@
+[Service]
+EnvironmentFile=/etc/environment
+ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
+ExecStartPre=/usr/bin/mkdir -p /var/log/containers
+
+Environment=KUBELET_IMAGE_TAG=v1.6.1_coreos.0
+Environment=KUBELET_VERSION=v1.6.1_coreos.0
+Environment=KUBELET_ACI=quay.io/coreos/hyperkube
+Environment="RKT_RUN_ARGS=--volume var-log,kind=host,source=/var/log \
+  --mount volume=var-log,target=/var/log \
+  --volume dns,kind=host,source=/etc/resolv.conf \
+  --mount volume=dns,target=/etc/resolv.conf"
+Environment="RKT_OPTS=--volume var-log,kind=host,source=/var/log \
+  --mount volume=var-log,target=/var/log \
+  --volume dns,kind=host,source=/etc/resolv.conf \
+  --mount volume=dns,target=/etc/resolv.conf"
+
+ExecStart=/usr/lib/coreos/kubelet-wrapper \
+  --api-servers=http://172.17.4.100:8080 \
+  --network-plugin-dir=/etc/kubernetes/cni/net.d \
+  --network-plugin= \
+  --register-node=true \
+  --register-schedulable=true \
+  --allow-privileged=true \
+  --config=/etc/kubernetes/manifests \
+  --hostname-override=${COREOS_PRIVATE_IPV4} \
+  --cluster-dns=10.3.0.10 \
+  --cluster-domain=cluster.local
+  --kubeconfig=/etc/kubernetes/worker-kubeconfig.yaml
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

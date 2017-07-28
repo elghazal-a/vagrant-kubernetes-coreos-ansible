@@ -1,0 +1,39 @@
+#cloud-config
+
+coreos:
+  update:
+    reboot-strategy: "off"
+
+  etcd2:
+    name: etcd
+    initial-cluster: etcd=http://172.17.4.101:2380
+    
+    advertise-client-urls: http://172.17.4.101:2379
+    initial-advertise-peer-urls: http://172.17.4.101:2380
+    
+    listen-client-urls: http://0.0.0.0:2379
+    listen-peer-urls: http://172.17.4.101:2380
+
+  flannel:
+    interface: 172.17.4.101
+    etcd_endpoints: http://127.0.0.1:2379
+
+  units:
+
+  - name: etcd2.service
+    command: start
+  - name: flanneld.service
+    command: start
+    drop-ins:
+      - name: 50-network-config.conf
+        content: |
+          [Service]
+          ExecStartPre=/usr/bin/etcdctl set /coreos.com/network/config '{"Network":"10.2.0.0/16", "Backend": {"Type": "vxlan"}}'
+  - name: docker.service
+    command: start
+    drop-ins:
+      - name: 40-flannel.conf
+        content: |
+          [Unit]
+          Requires=flanneld.service
+          After=flanneld.service

@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+  labels:
+    name: prometheus
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  type: NodePort
+  ports:
+    - name: prometheus
+      protocol: TCP
+      port: 9090
+      nodePort: 30900
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+data:
+  prometheus.yml: |-
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+    - job_name: 'etcd'
+      static_configs:
+      - targets:
+        - 172.17.4.101:2379
+    - job_name: 'kubernetes-apiservers'
+      static_configs:
+      - targets:
+        - 172.17.4.101:8080
+
+      # apiservers should be discovered that way, but it doesn't work in http
+      # kubernetes_sd_configs:
+      # - role: endpoints
+      #   api_server: 'http://172.17.4.100:8080'
+      # tls_config:
+      #   insecure_skip_verify: true
+
+      # relabel_configs:
+      # - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name]
+      #   action: keep
+      #   regex: default;kubernetes
+
+    - job_name: 'kubernetes-apiserver-cadvisor'
+      static_configs:
+      - targets:
+        - 172.17.4.101:10255
+
+    - job_name: 'kubernetes-nodes-cadvisor'
+      tls_config:
+        insecure_skip_verify: true
+      kubernetes_sd_configs:
+      - role: node
+        api_server: 'http://172.17.4.100:8080'
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels: [__address__]
+        regex: '(.*):10250'
+        replacement: '${1}:10255'
+        target_label: __address__
+
+    - job_name: 'kubernetes-node-exporter'
+      tls_config:
+        insecure_skip_verify: true
+      kubernetes_sd_configs:
+      - role: node
+        api_server: 'http://172.17.4.100:8080'
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels: [__meta_kubernetes_role]
+        action: replace
+        target_label: kubernetes_role
+      - source_labels: [__address__]
+        regex: '(.*):10250'
+        replacement: '${1}:9100'
+        target_label: __address__
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      name: prometheus
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v1.4.1
+        args:
+          - '-storage.local.retention=6h'
+          - '-storage.local.memory-chunks=500000'
+          - '-config.file=/etc/prometheus/prometheus.yml'
+        ports:
+        - name: web
+          containerPort: 9090
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus
+      volumes:
+      - name: config-volume
+        configMap:
+          name: prometheus
