@@ -3,8 +3,10 @@
 
 UPDATE_CHANNEL = "stable"
 COREOS_VERSION = "1409.7.0"
-MASTER_COUNT = 1
-MINION_COUNT = (ENV['MINION_COUNT'] || 0).to_i
+MASTER_COUNT = (ENV['MASTER_COUNT'] || 1).to_i
+MINION_COUNT = (ENV['MINION_COUNT'] || 1).to_i
+COREOS_HOST_NAMES = []
+MASTERS_IPS = []
 
 CONFIG_KUBELET  = ENV['CONFIG_KUBELET'] || false
 
@@ -17,6 +19,8 @@ end
 def minionIP(num)
   return "172.17.4.#{num+200}"
 end
+ETCD_IPS = [*1..MASTER_COUNT].map{ |i| masterIP(i) }
+INITIAL_ETCD_CLUSTER = ETCD_IPS.map.with_index{ |ip, i| "etcd#{i+1}=http://#{ip}:2380" }.join(",")
 
 Vagrant.configure("2") do |config|
 
@@ -39,12 +43,21 @@ Vagrant.configure("2") do |config|
     proxy.vm.network "forwarded_port", guest: 8080, host: 8080
     proxy.vm.network "forwarded_port", guest: 8888, host: 8888
     
-    proxy.vm.provision :file, :source => "./proxy/haproxy.cfg", :destination => "/tmp/haproxy.cfg"
-    proxy.vm.provision :shell, :path => "proxy/provision.sh", :privileged => true
+    for counter in 1..MASTER_COUNT
+      MASTERS_IPS.push(masterIP(counter))
+    end
+    proxy.vm.provision :ansible do |ansible|
+      ansible.limit = "proxy"
+      ansible.playbook = "./proxy.pb.yml"
+      ansible.extra_vars = {
+        master_ips: MASTERS_IPS
+      }
+    end
   end
 
   (1..MASTER_COUNT).each do |i|
     config.vm.define vm_master_name = "master-%d" % i do |master|
+      COREOS_HOST_NAMES.push(vm_master_name)
 
       master.vm.box = "coreos-%s" % UPDATE_CHANNEL
       master.vm.box_url = "http://#{UPDATE_CHANNEL}.release.core-os.net/amd64-usr/#{COREOS_VERSION}/coreos_production_vagrant.json"
@@ -56,17 +69,23 @@ Vagrant.configure("2") do |config|
         vb.memory = "512"
       end
 
-      
-      master.vm.provision :file, :source => "./master/cloud-config.yml", :destination => "/tmp/vagrantfile-user-data"
-      master.vm.provision :shell, :inline => "mv /tmp/vagrantfile-user-data /var/lib/coreos-vagrant/", :privileged => true
+      master.vm.provision :ansible do |ansible|
+        ansible.galaxy_command = "ansible-galaxy install --role-file=%{role_file} --roles-path=%{roles_path}"
+        ansible.galaxy_role_file = "./requirements.yml"
+        ansible.galaxy_roles_path = "./roles"
+        ansible.limit = vm_master_name
+        ansible.playbook = "./master.pb.yml"
+        ansible.extra_vars = {
+          etcdIndex: i,
+          initial_etcd_cluster: INITIAL_ETCD_CLUSTER,
+        }
+        ansible.groups = {
+          "coreos" => COREOS_HOST_NAMES,
+          "coreos:vars" => {"ansible_python_interpreter" => "/home/core/bin/python"
+                           }
+        }
+      end
 
-      master.vm.provision :file, :source => "./master/kubelet.service", :destination => "/tmp/kubelet.service"
-      master.vm.provision :file, :source => "./master/kube-apiserver.manifest.yaml", :destination => "/tmp/kube-apiserver.manifest.yaml"
-      master.vm.provision :file, :source => "./master/kube-proxy.manifest.yaml", :destination => "/tmp/kube-proxy.manifest.yaml"
-      master.vm.provision :file, :source => "./master/kube-controller-manager.manifest.yaml", :destination => "/tmp/kube-controller-manager.manifest.yaml"
-      master.vm.provision :file, :source => "./master/kube-scheduler.manifest.yaml", :destination => "/tmp/kube-scheduler.manifest.yaml"
-      
-      master.vm.provision :shell, :path => "master/provision.sh", :privileged => true
     end
   end
   
@@ -74,6 +93,7 @@ Vagrant.configure("2") do |config|
 
   (1..MINION_COUNT).each do |i|
     config.vm.define vm_minion_name = "minion-%d" % i do |minion|
+      COREOS_HOST_NAMES.push(vm_minion_name)
 
       minion.vm.box = "coreos-%s" % UPDATE_CHANNEL
       minion.vm.box_url = "http://#{UPDATE_CHANNEL}.release.core-os.net/amd64-usr/#{COREOS_VERSION}/coreos_production_vagrant.json"
@@ -82,24 +102,32 @@ Vagrant.configure("2") do |config|
       minion.vm.network :private_network, ip: minionIP(i)
 
       minion.vm.provider "virtualbox" do |vb|
-        vb.memory = "1024"
+        vb.memory = "512"
       end
 
-      minion.vm.provision :file, :source => "./minion/cloud-config.yml", :destination => "/tmp/vagrantfile-user-data"
-      minion.vm.provision :shell, :inline => "mv /tmp/vagrantfile-user-data /var/lib/coreos-vagrant/", :privileged => true
-      
-      minion.vm.provision :file, :source => "./minion/kubelet.service", :destination => "/tmp/kubelet.service"
-      minion.vm.provision :file, :source => "./minion/kube-proxy.manifest.yaml", :destination => "/tmp/kube-proxy.manifest.yaml"
-      minion.vm.provision :file, :source => "./minion/worker-kubeconfig.yaml", :destination => "/tmp/worker-kubeconfig.yaml"
-      minion.vm.provision :shell, :path => "minion/provision.sh", :privileged => true
+      minion.vm.provision :ansible do |ansible|
+        ansible.galaxy_command = "ansible-galaxy install --role-file=%{role_file} --roles-path=%{roles_path}"
+        ansible.galaxy_role_file = "./requirements.yml"
+        ansible.galaxy_roles_path = "./roles"
+        ansible.limit = vm_minion_name
+        ansible.playbook = "./minion.pb.yml"
+        ansible.extra_vars = {
+          api_ip: PROXY_IP
+        }
+        ansible.groups = {
+          "coreos" => COREOS_HOST_NAMES,
+          "coreos:vars" => {"ansible_python_interpreter" => "/home/core/bin/python"
+                           }
+        }
+      end
 
     end
   end
 
   if CONFIG_KUBELET
-    system "kubectl config set-cluster next-gen-cluster --server=http://#{PROXY_IP}:8080 --insecure-skip-tls-verify=true"
-    system "kubectl config set-context next-gen-context --cluster=next-gen-cluster --namespace=default"
-    system "kubectl config use-context next-gen-context"
+    system "kubectl config set-cluster vagrant-cluster --server=http://#{PROXY_IP}:8080 --insecure-skip-tls-verify=true"
+    system "kubectl config set-context vagrant-context --cluster=vagrant-cluster --namespace=default"
+    system "kubectl config use-context vagrant-context"
   end
 
 

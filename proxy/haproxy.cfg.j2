@@ -13,18 +13,20 @@ listen apiserver
     option httpchk
     option forwardfor
     option http-server-close
-    server web1 172.17.4.101:8080 maxconn 32 check
-    server web1 172.17.4.102:8080 maxconn 32 check
-    server web1 172.17.4.103:8080 maxconn 32 check
+
+    {% for master_ip in master_ips %}
+    server api{{ loop.index }} {{ master_ip }}:8080 maxconn 32 check
+    {% endfor %}
 listen etcd
     bind *:2379
     balance roundrobin
     option httpchk
     option forwardfor
     option http-server-close
-    server web1 172.17.4.101:2379 maxconn 32 check
-    server web1 172.17.4.102:2379 maxconn 32 check
-    server web1 172.17.4.103:2379 maxconn 32 check
+
+    {% for master_ip in master_ips %}
+    server etcd{{ loop.index }} {{ master_ip }}:2379 maxconn 32 check
+    {% endfor %}
 listen admin
     bind *:8888
     stats enable

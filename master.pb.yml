@@ -1,0 +1,56 @@
+---
+- hosts: master-*
+  name: K8S Master provisioning
+  gather_facts: false
+  vars_files:
+    - config.yml
+  roles:
+    - defunctzombie.coreos-bootstrap
+  tasks:
+    - name: Gathering fact manually #after python role installation
+      setup:
+    
+    - name: Copy cloud-init bootstrap script
+      become: yes
+      become_method: sudo
+      template:
+        src: ./master/cloud-config.j2.yml
+        dest: /var/lib/coreos-vagrant/vagrantfile-user-data
+      tags:
+        - coreos
+
+    - name: Copy Kubelet service unit
+      become: yes
+      become_method: sudo
+      template:
+        src: ./master/kubelet.service.j2
+        dest: /etc/systemd/system/kubelet.service
+      notify:
+        - reload Kubelet
+
+    - name: Start Kubelet service
+      become: yes
+      become_method: sudo
+      systemd:
+        name: kubelet
+        state: started
+        enabled: true
+
+    - name: Copy k8s manifests
+      become: yes
+      become_method: sudo
+      template:
+        src: "{{ item }}"
+        dest: /etc/kubernetes/manifests/{{ item | basename | regex_replace('\.j2','') }}
+      with_fileglob:
+        - ./master/*.manifest.j2.yml
+
+
+  handlers:
+    - name: reload Kubelet
+      become: yes
+      become_method: sudo
+      systemd:
+        name: kubelet
+        daemon_reload: true
+        state: restarted

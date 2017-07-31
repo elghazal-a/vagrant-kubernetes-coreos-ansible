@@ -1,0 +1,35 @@
+---
+- hosts: proxy
+  name: HAProxy provisioning
+  gather_facts: false
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Ensure software-properties-common is installed
+      apt: 
+        name: software-properties-common 
+        state: present
+        update_cache: true
+
+    - name: Add haproxy1.7 repo
+      apt_repository:
+        repo: 'ppa:vbernat/haproxy-1.7'
+
+    - name: install haproxy1.7
+      apt:
+        name: 'haproxy'
+        state: present
+
+    - name: upload haproxy config
+      template:
+        src: ./proxy/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+      notify:
+        - reload Haproxy
+
+  handlers:
+    - name: reload Haproxy
+      service:
+        name: haproxy
+        state: restarted
+        enabled: true

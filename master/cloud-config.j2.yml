@@ -5,17 +5,18 @@ coreos:
     reboot-strategy: "off"
 
   etcd2:
-    name: etcd
-    initial-cluster: etcd=http://172.17.4.101:2380
+    name: etcd{{ etcdIndex }}
+    initial-cluster: {{ initial_etcd_cluster }}
+    initial-cluster-state: new
     
-    advertise-client-urls: http://172.17.4.101:2379
-    initial-advertise-peer-urls: http://172.17.4.101:2380
+    advertise-client-urls: http://{{ ansible_env.COREOS_PRIVATE_IPV4 }}:2379
+    initial-advertise-peer-urls: http://{{ ansible_env.COREOS_PRIVATE_IPV4 }}:2380
     
     listen-client-urls: http://0.0.0.0:2379
-    listen-peer-urls: http://172.17.4.101:2380
+    listen-peer-urls: http://{{ ansible_env.COREOS_PRIVATE_IPV4 }}:2380
 
   flannel:
-    interface: 172.17.4.101
+    interface: {{ ansible_env.COREOS_PRIVATE_IPV4 }}
     etcd_endpoints: http://127.0.0.1:2379
 
   units:
@@ -28,7 +29,7 @@ coreos:
       - name: 50-network-config.conf
         content: |
           [Service]
-          ExecStartPre=/usr/bin/etcdctl set /coreos.com/network/config '{"Network":"10.2.0.0/16", "Backend": {"Type": "vxlan"}}'
+          ExecStartPre=/usr/bin/etcdctl set /coreos.com/network/config '{"Network":"{{ pod_network }}", "Backend": {"Type": "{{ flannel_backend }}"}}'
   - name: docker.service
     command: start
     drop-ins:
