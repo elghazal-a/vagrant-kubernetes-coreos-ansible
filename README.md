@@ -1,5 +1,7 @@
 # Kubernetes cluster setup on top of CoreOS with Vagrant.
 
+NOTE: Check `HA` branch if you want to setup a `highly available` k8s cluster (multiple masters)
+
 This is automated setup to run quickly K8S cluster on top of CoreOS for testing purposes. it supports only virtualbox as virtualisation provider and it's tested on 
 
 * Debian Jessie
