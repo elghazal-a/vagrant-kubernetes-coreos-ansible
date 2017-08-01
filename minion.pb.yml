@@ -1,0 +1,71 @@
+---
+- hosts: minion-*
+  name: K8S Minion provisioning
+  gather_facts: false
+  vars_files:
+    - config.yml
+  roles:
+    - defunctzombie.coreos-bootstrap
+  tasks:
+    - name: Gathering fact manually #after python role installation
+      setup:
+    
+    - name: Copy cloud-init bootstrap script
+      become: yes
+      become_method: sudo
+      template:
+        src: ./minion/cloud-config.j2.yml
+        dest: /var/lib/coreos-vagrant/vagrantfile-user-data
+      tags:
+        - coreos
+
+    - name: create k8s directory where to put some configs
+      become: yes
+      become_method: sudo
+      file: 
+        path: "/etc/kubernetes"
+        state: directory
+        recurse: yes
+
+    - name: copy kubeconfig that defines communication/auth between k8s components
+      become: yes
+      become_method: sudo
+      template:
+        src: ./minion/worker-kubeconfig.j2.yml
+        dest: /etc/kubernetes/worker-kubeconfig.j2.yml
+
+    - name: Copy Kubelet service unit
+      become: yes
+      become_method: sudo
+      template:
+        src: ./minion/kubelet.service.j2
+        dest: /etc/systemd/system/kubelet.service
+      notify:
+        - reload Kubelet
+
+    - name: Start Kubelet service
+      become: yes
+      become_method: sudo
+      systemd:
+        name: kubelet
+        state: started
+        enabled: true
+
+    - name: Copy k8s manifests
+      become: yes
+      become_method: sudo
+      template:
+        src: "{{ item }}"
+        dest: /etc/kubernetes/manifests/{{ item | basename | regex_replace('\.j2','') }}
+      with_fileglob:
+        - ./minion/*.manifest.j2.yml
+
+
+  handlers:
+    - name: reload Kubelet
+      become: yes
+      become_method: sudo
+      systemd:
+        name: kubelet
+        daemon_reload: true
+        state: restarted

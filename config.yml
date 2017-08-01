@@ -1,0 +1,8 @@
+---
+
+flannel_backend: "vxlan"
+k8s_image_tag: "v1.6.1_coreos.0"
+service_ip_range: "10.3.0.0/24"
+pod_network: "10.2.0.0/16"
+cluster_dns: "10.3.0.10"
+cluster_domain: "cluster.local"

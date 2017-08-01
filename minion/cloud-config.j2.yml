@@ -3,8 +3,8 @@
 coreos:
 
   flannel:
-    interface: $private_ipv4
-    etcd_endpoints: http://172.17.4.100:2379
+    interface: {{ ansible_env.COREOS_PRIVATE_IPV4 }}
+    etcd_endpoints: http://{{ api_ip }}:2379
 
   units:
 
